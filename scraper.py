@@ -1,4 +1,3 @@
-
 import cloudscraper
 import json
 import os
@@ -26,7 +25,7 @@ class SALottoScraper:
         """Faz o POST simulando o AJAX do site oficial"""
         payload = {
             'gameName': game_name,
-            'drawNumber': '', # Pega todo o histórico disponível
+            'drawNumber': '', 
             'isAjax': 'true'
         }
         
@@ -49,14 +48,13 @@ class SALottoScraper:
             print(f"[!] Erro ao processar {game_name}: {str(e)}")
         return None
 
-  def save_data(self, name, data):
+    def save_data(self, name, data):
+        """Salva o JSON formatado para o repositório"""
         if not data:
-            print(f"[!] Pulando {name}: Nenhum dado recebido.")
             return
 
         filename = f"{self.data_dir}/{name.lower().replace(' ', '_')}.json"
         
-        # Estrutura limpa para o seu App Flutter
         output = {
             "last_update": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "game": name,
@@ -65,21 +63,15 @@ class SALottoScraper:
         
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=4)
-        print(f"[OK] Arquivo criado: {filename}")
-        
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(output, f, ensure_ascii=False, indent=4)
         print(f"[OK] {filename} atualizado.")
 
     def run(self):
-        # Lista filtrada apenas com as de números (Removido Sportstake)
         loterias = ["LOTTO", "POWERBALL", "DAILY LOTTO"]
-        
         for lotto in loterias:
             result = self.fetch_data(lotto)
             if result:
                 self.save_data(lotto, result)
-            time.sleep(5) # Delay de segurança para não ser bloqueado
+            time.sleep(5)
 
 if __name__ == "__main__":
     bot = SALottoScraper()
