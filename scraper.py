@@ -49,15 +49,23 @@ class SALottoScraper:
             print(f"[!] Erro ao processar {game_name}: {str(e)}")
         return None
 
-    def save_data(self, name, data):
-        """Salva o JSON formatado para consumo do App Flutter"""
+  def save_data(self, name, data):
+        if not data:
+            print(f"[!] Pulando {name}: Nenhum dado recebido.")
+            return
+
         filename = f"{self.data_dir}/{name.lower().replace(' ', '_')}.json"
         
+        # Estrutura limpa para o seu App Flutter
         output = {
             "last_update": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "game": name,
             "results": data
         }
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(output, f, ensure_ascii=False, indent=4)
+        print(f"[OK] Arquivo criado: {filename}")
         
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(output, f, ensure_ascii=False, indent=4)
