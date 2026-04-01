@@ -1,54 +1,150 @@
-name: Update SA Lotto Data
+import cloudscraper
+import json
+import os
+import time
+import random
+import logging
+from datetime import datetime, timedelta
 
-on:
-  schedule:
-    - cron: '0 */6 * * *'
-  workflow_dispatch:
+class SALottoScraper:
 
-permissions:
-  contents: write
+    def __init__(self):
+        self.scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        self.base_url = "https://www.nationallottery.co.za/index.php?option=com_weaver&controller=lotto-history"
+        self.data_dir = "data"
+        self.cache_ttl = 1800  # 30 minutos
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+        os.makedirs(self.data_dir, exist_ok=True)
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+        logging.basicConfig(
+            level=logging.INFO,
+            format='[%(asctime)s] %(levelname)s: %(message)s'
+        )
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install cloudscraper requests
+        self.user_agents = [
+            # Rotação simples
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/118.0 Safari/537.36"
+        ]
 
-      - name: Run Scraper
-        run: python scraper.py
+    # 🔥 Delay humano
+    def human_delay(self):
+        t = random.uniform(5, 15)
+        logging.info(f"Aguardando {t:.2f}s...")
+        time.sleep(t)
 
-      - name: Check files (Debug)
-        run: ls -R data/ # Isso vai nos mostrar no log se os JSONs existem
+    # 🔥 Cache local
+    def load_cache(self, name):
+        path = f"{self.data_dir}/{name}.json"
 
-      - name: Commit and Push
-        run: |
-          git config --global user.name "Lotto Bot SA"
-          git config --global user.email "bot@github.com"
-          
-          # Criar a pasta data caso o scraper tenha falhado silenciosamente
-          mkdir -p data
-          touch data/.gitkeep 
+        if not os.path.exists(path):
+            return None
 
-          git add data/
-          
-          # Só faz o commit se houver mudanças reais
-          if git diff --staged --quiet; then
-            echo "Nada para atualizar."
-          else
-            git commit -m "Update Lotto Results: $(date)"
-            git push
-          fi
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        last_update = datetime.strptime(data["last_update"], "%Y-%m-%d %H:%M:%S")
+
+        if datetime.now() - last_update < timedelta(seconds=self.cache_ttl):
+            logging.info(f"[CACHE] Usando dados recentes de {name}")
+            return data["results"]
+
+        return None
+
+    def fetch_data(self, game_name):
+        # 🔥 Verifica cache antes
+        cache = self.load_cache(game_name.lower().replace(" ", "_"))
+        if cache:
+            return cache
+
+        payload = {
+            'gameName': game_name,
+            'drawNumber': '',
+            'isAjax': 'true'
+        }
+
+        headers = {
+            'accept': 'application/json, text/javascript, */*; q=0.01',
+            'user-agent': random.choice(self.user_agents),
+            'x-requested-with': 'XMLHttpRequest',
+            'referer': 'https://www.nationallottery.co.za/results/lotto'
+        }
+
+        for attempt in range(3):  # 🔁 retry
+            try:
+                logging.info(f"[TRY {attempt+1}] {game_name}")
+
+                response = self.scraper.post(
+                    self.base_url,
+                    data=payload,
+                    headers=headers,
+                    timeout=30
+                )
+
+                if response.status_code != 200:
+                    logging.warning(f"HTTP {response.status_code}")
+                    self.human_delay()
+                    continue
+
+                content = response.json()
+
+                if content.get('status') != 'success':
+                    logging.warning("Resposta inválida do servidor")
+                    self.human_delay()
+                    continue
+
+                data = content['data']['drawDetails']
+
+                # 🔥 Validação básica
+                if not data or len(data) == 0:
+                    logging.warning("Dados vazios")
+                    continue
+
+                return data
+
+            except Exception as e:
+                logging.error(f"Erro: {str(e)}")
+
+            self.human_delay()
+
+        return None
+
+    def save_data(self, name, data):
+        filename = f"{self.data_dir}/{name.lower().replace(' ', '_')}.json"
+
+        output = {
+            "last_update": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "game": name,
+            "results": data
+        }
+
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(output, f, ensure_ascii=False, indent=4)
+
+        logging.info(f"[SALVO] {filename}")
+
+    def run(self):
+        loterias = ["LOTTO", "POWERBALL", "DAILY LOTTO"]
+
+        for lotto in loterias:
+            result = self.fetch_data(lotto)
+
+            if result:
+                self.save_data(lotto, result)
+            else:
+                logging.error(f"[FALHA] {lotto}")
+
+            self.human_delay()
+
+
+if __name__ == "__main__":
+    bot = SALottoScraper()
+    bot.run()
